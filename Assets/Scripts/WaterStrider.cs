@@ -1,69 +1,145 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using TMPro;
 
 public class WaterStrider : MonoBehaviour
 {
-    private Rigidbody rb;
-    [SerializeField] private float speed = 0.8f;
-    private Vector3 moveVector;
+    [Header("Movement")]
+    [SerializeField] private float speed = 3f;
 
+    [Header("Dash")]
     public float dashForce = 10f;
-    public float dashDuration = 0.5f;
+    public float dashDuration = 0.4f;
     public float dashCooldown = 1f;
 
-    private bool isDashing = false;
-    private float dashTimer = 0f;
-    private float dashCooldownTimer = 0f;
+    [Header("References")]
+    [SerializeField] private Animator animator;
+    [SerializeField] private Transform cameraTransform;
+    [SerializeField] private TMP_Text foodText;
+    [SerializeField] private LoseScreen loseScreen;
+    [SerializeField] private WinScreen winScreen;
+
+    private Rigidbody rb;
+    private Vector3 moveDirection;
+
+    private bool isDashing;
+    private float dashCooldownTimer;
+    private int foodCount = 0;
+    private const int WIN_FOOD = 10;
 
     void Awake()
     {
         rb = GetComponent<Rigidbody>();
     }
 
-    void Update()
+    void Start()
     {
-        moveVector.x = Input.GetAxis("Horizontal");
-        moveVector.z = Input.GetAxis("Vertical");
-        rb.MovePosition(rb.position + moveVector * speed * Time.deltaTime);
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
 
-        if (Input.GetKeyDown(KeyCode.Space) && !isDashing && dashCooldownTimer <= 0)
-        {
-            StartDash();
-        }
-
-        if (isDashing)
-        {
-            dashTimer -= Time.deltaTime;
-            if (dashTimer <= 0)
-            {
-                StopDash();
-            }
-        }
-        else
-        {
-            dashCooldownTimer -= Time.deltaTime;
-        }
+        UpdateFoodUI();
     }
 
+    void Update()
+    {
+        ReadInput();
+        HandleCameraRotation();
+        HandleAnimation();
+
+        if (Input.GetKeyDown(KeyCode.Space) && !isDashing && dashCooldownTimer <= 0f)
+            StartDash();
+
+        if (!isDashing)
+            dashCooldownTimer -= Time.deltaTime;
+    }
+
+    void FixedUpdate()
+    {
+        if (isDashing) return;
+
+        rb.MovePosition(rb.position + moveDirection * speed * Time.fixedDeltaTime);
+    }
+
+    // ---------------- INPUT ----------------
+    void ReadInput()
+    {
+        float h = Input.GetAxisRaw("Horizontal");
+        float v = Input.GetAxisRaw("Vertical");
+
+        Vector3 forward = cameraTransform.forward;
+        Vector3 right = cameraTransform.right;
+
+        forward.y = 0;
+        right.y = 0;
+
+        forward.Normalize();
+        right.Normalize();
+
+        moveDirection = (forward * v + right * h).normalized;
+    }
+
+    // ----------- CAMERA-BASED ROTATION -----------
+    void HandleCameraRotation()
+    {
+        Quaternion targetRotation = Quaternion.Euler(0, cameraTransform.eulerAngles.y, 0);
+        transform.rotation = targetRotation;
+    }
+
+    // ---------------- ANIMATION ----------------
+    void HandleAnimation()
+    {
+        bool isMoving = moveDirection.sqrMagnitude > 0.01f;
+        animator.SetBool("IsMoving", isMoving);
+    }
+
+    // ---------------- DASH ----------------
     void StartDash()
     {
         isDashing = true;
-        dashTimer = dashDuration;
         dashCooldownTimer = dashCooldown;
 
-        Vector3 movementDirection = new Vector3(Input.GetAxis("Horizontal"), 0, Input.GetAxis("Vertical")).normalized;
+        animator.SetTrigger("Dash");
 
-        if (movementDirection == Vector3.zero)
-        {
-            movementDirection = transform.forward;
-        }
+        rb.linearVelocity = Vector3.zero;
+        rb.AddForce(transform.forward * dashForce, ForceMode.Impulse);
 
-        rb.AddForce(movementDirection * dashForce, ForceMode.Impulse);
+        Invoke(nameof(StopDash), dashDuration);
     }
 
     void StopDash()
     {
         isDashing = false;
     }
+
+    // ---------------- FOOD + WIN ----------------
+    private void OnTriggerEnter(Collider other)
+    {
+        if (other.CompareTag("food"))
+        {
+            foodCount++;
+            UpdateFoodUI();
+
+            if (foodCount >= WIN_FOOD)
+            {
+                winScreen.Show();
+                gameObject.SetActive(false);
+            }
+
+            Destroy(other.gameObject);
+        }
+
+        if (other.CompareTag("enemy"))
+        {
+            loseScreen.Show();
+            gameObject.SetActive(false);
+        }
+    }
+
+    void UpdateFoodUI()
+    {
+        if (foodText != null)
+            foodText.text = ": " + foodCount;
+    }
+
+  
 }
